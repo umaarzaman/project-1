@@ -1,16 +1,6 @@
 const bcrypt = require('bcryptjs');
 
-let sqlite3;
-let useSqlite = true;
-
-try {
-  sqlite3 = require('sqlite3').verbose();
-} catch (e) {
-  console.warn('sqlite3 native binary unavailable on serverless environment. Switching to pure JS storage engine:', e.message);
-  useSqlite = false;
-}
-
-// Memory / File fallback store for Vercel Serverless
+// Pure JavaScript Data Engine for Vercel Serverless (Zero native C++ binary dependencies)
 const store = {
   administrators: [
     {
@@ -157,38 +147,7 @@ const store = {
   nextUserId: 13
 };
 
-let dbInstance = null;
-
-if (useSqlite) {
-  try {
-    const path = require('path');
-    const fs = require('fs');
-    let dbPath = path.join('/tmp', 'database.sqlite');
-    try {
-      if (!fs.existsSync('/tmp')) {
-        dbPath = path.join(__dirname, 'database.sqlite');
-      }
-    } catch (e) {
-      dbPath = path.join(__dirname, 'database.sqlite');
-    }
-    dbInstance = new sqlite3.Database(dbPath);
-  } catch (err) {
-    console.warn('Failed to initialize sqlite3 database instance:', err.message);
-    useSqlite = false;
-  }
-}
-
 const dbRun = (sql, params = []) => {
-  if (useSqlite && dbInstance) {
-    return new Promise((resolve, reject) => {
-      dbInstance.run(sql, params, function (err) {
-        if (err) reject(err);
-        else resolve(this);
-      });
-    });
-  }
-
-  // Pure JS Fallback execution
   const sqlLower = sql.toLowerCase().trim();
 
   if (sqlLower.startsWith('insert into users')) {
@@ -246,16 +205,6 @@ const dbRun = (sql, params = []) => {
 };
 
 const dbGet = (sql, params = []) => {
-  if (useSqlite && dbInstance) {
-    return new Promise((resolve, reject) => {
-      dbInstance.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
-  }
-
-  // Pure JS Fallback execution
   const sqlLower = sql.toLowerCase().trim();
 
   if (sqlLower.includes('from administrators')) {
@@ -285,16 +234,6 @@ const dbGet = (sql, params = []) => {
 };
 
 const dbAll = (sql, params = []) => {
-  if (useSqlite && dbInstance) {
-    return new Promise((resolve, reject) => {
-      dbInstance.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
-  }
-
-  // Pure JS Fallback execution
   const sqlLower = sql.toLowerCase().trim();
 
   if (sqlLower.includes('from users')) {
@@ -312,62 +251,11 @@ const dbAll = (sql, params = []) => {
 };
 
 const initDatabase = async () => {
-  if (!useSqlite || !dbInstance) return;
-  try {
-    await dbRun('PRAGMA foreign_keys = ON');
-
-    await dbRun(`
-      CREATE TABLE IF NOT EXISTS administrators (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await dbRun(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        full_name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        role TEXT NOT NULL DEFAULT 'Member',
-        status TEXT NOT NULL DEFAULT 'Active',
-        phone TEXT,
-        address TEXT,
-        bio TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    const adminEmail = 'admin@example.com';
-    const existingAdmin = await dbGet('SELECT * FROM administrators WHERE email = ?', [adminEmail]);
-
-    if (!existingAdmin) {
-      const passwordHash = bcrypt.hashSync('admin123', 10);
-      await dbRun(
-        'INSERT INTO administrators (email, password_hash) VALUES (?, ?)',
-        [adminEmail, passwordHash]
-      );
-    }
-
-    const userCountObj = await dbGet('SELECT COUNT(*) as count FROM users');
-    if (userCountObj.count < 10) {
-      for (const u of store.users) {
-        await dbRun(
-          `INSERT INTO users (full_name, email, role, status, phone, address, bio, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [u.full_name, u.email, u.role, u.status, u.phone, u.address, u.bio, u.created_at]
-        );
-      }
-    }
-  } catch (err) {
-    console.warn('SQLite init failed, falling back to pure JS store:', err.message);
-    useSqlite = false;
-  }
+  return Promise.resolve();
 };
 
 module.exports = {
-  db: dbInstance,
+  db: null,
   dbRun,
   dbGet,
   dbAll,
